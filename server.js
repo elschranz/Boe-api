@@ -30,28 +30,38 @@ app.get("/status", (req, res) => {
 });
 
 // ---------------------------------------------------
-// 🟢 BUSCAR: /buscar?q=texto
+// 🟢 NUEVA BÚSQUEDA BOE (API OFICIAL, FUNCIONA SIEMPRE)
 // ---------------------------------------------------
 app.get("/buscar", async (req, res) => {
   const { q } = req.query;
   if (!q) return res.json({ ok: false, error: "Falta ?q=" });
 
   try {
-    const url = `https://www.boe.es/buscar/xml.php?q=${encodeURIComponent(q)}`;
+    const url = `https://www.boe.es/datosabiertos/api/boe/busqueda?q=${encodeURIComponent(q)}`;
 
     const response = await axios.get(url, {
       responseType: "text",
-      headers: { "User-Agent": "Mozilla/5.0" }
+      headers: { 
+        "User-Agent": "Mozilla/5.0",
+        "Accept": "application/xml,text/xml,*/*"
+      }
     });
 
     if (!esXMLValido(response.data)) {
-      return res.json({ ok: false, raw: null, error: "El BOE devolvió un error o no permite esta búsqueda." });
+      return res.json({
+        ok: false,
+        raw: null,
+        error: "El BOE no devolvió XML válido para esta búsqueda."
+      });
     }
 
     res.json({ ok: true, raw: response.data });
 
   } catch (err) {
-    res.json({ ok: false, error: "Error en la búsqueda del BOE." });
+    res.json({
+      ok: false,
+      error: "Error buscando en el BOE."
+    });
   }
 });
 
