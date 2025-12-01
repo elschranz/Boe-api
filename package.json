@@ -1,6 +1,7 @@
 {
   "name": "boe-api",
   "version": "1.0.0",
+  "description": "API profesional del BOE con niveles A/B/C para integración con GPT.",
   "main": "server.js",
   "type": "module",
   "license": "MIT",
@@ -8,9 +9,10 @@
     "start": "node server.js"
   },
   "dependencies": {
-    "express": "4.18.2",
     "axios": "1.6.0",
     "cheerio": "1.0.0",
-    "cors": "2.8.5"
+    "cors": "2.8.5",
+    "express": "4.18.2"
   }
 }
+
