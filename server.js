@@ -1,24 +1,23 @@
-// ===============================================
-// API BOE OFICIAL – VERSION FINAL PROFESIONAL
-// ===============================================
-
 import express from "express";
 import axios from "axios";
+import cors from "cors";
 
 const app = express();
-app.use(express.json());
+app.use(cors());
 
 // ---------------------------------------------------
-// 🔧 Función para validar si la respuesta es XML real
+// 🟢 VALIDACIÓN XML (AHORA INCLUYE <sumario>)
 // ---------------------------------------------------
 function esXMLValido(data) {
-  const text = String(data).trim().toLowerCase();
+  if (!data) return false;
 
+  const text = String(data).trim().toLowerCase();
   if (text.startsWith("<?xml")) return true;
   if (text.startsWith("<documento")) return true;
+  if (text.startsWith("<sumario")) return true;   // ← sumarios del diario
   if (text.startsWith("<error")) return true;
 
-  // HTML = siempre error del BOE
+  // Si empieza con HTML = BOE devolvió error visual
   if (text.startsWith("<!doctype html") || text.startsWith("<html")) return false;
 
   return false;
@@ -28,113 +27,174 @@ function esXMLValido(data) {
 // 🟢 STATUS
 // ---------------------------------------------------
 app.get("/status", (req, res) => {
-  res.json({ ok: true, status: "API funcionando correctamente" });
+  res.json({ ok: true, status: "running" });
 });
 
 // ---------------------------------------------------
-// 🟢 DETAILS (XML oficial del BOE por ID)
+// 🟢 BUSCAR (simple + por palabras)
 // ---------------------------------------------------
-app.get("/details", async (req, res) => {
+app.get("/buscar", async (req, res) => {
+  const { q } = req.query;
+
+  if (!q) return res.json({ ok: false, error: "Falta ?q=consulta" });
+
+  try {
+    const url = `https://www.boe.es/buscar/boe.php?campo%5B0%5D=todos&texto%5B0%5D=${encodeURIComponent(
+      q
+    )}&accion=Buscar`;
+
+    const response = await axios.get(url, {
+      responseType: "text",
+      headers: {
+        "User-Agent": "Mozilla/5.0",
+        Accept: "text/html,*/*",
+      }
+    });
+
+    if (!response.data || response.data.includes("Error en la información recibida")) {
+      return res.json({ ok: false, error: "El BOE devolvió un error." });
+    }
+
+    return res.json({
+      ok: true,
+      raw: response.data
+    });
+  } catch (err) {
+    return res.json({ ok: false, error: "No se pudo acceder al BOE." });
+  }
+});
+
+// ---------------------------------------------------
+// 🟢 BUSCAR AVANZADO (sector / consulta)
+// ---------------------------------------------------
+app.get("/buscar-avanzado", async (req, res) => {
+  const { sector, consulta } = req.query;
+
+  if (!sector || !consulta) {
+    return res.json({
+      ok: false,
+      error: "Falta ?sector= y ?consulta="
+    });
+  }
+
+  try {
+    const query = `${sector} ${consulta}`;
+    const url = `https://www.boe.es/buscar/boe.php?campo%5B0%5D=todos&texto%5B0%5D=${encodeURIComponent(
+      query
+    )}&accion=Buscar`;
+
+    const response = await axios.get(url, {
+      responseType: "text",
+      headers: {
+        "User-Agent": "Mozilla/5.0"
+      }
+    });
+
+    if (!response.data || response.data.includes("Error en la información recibida")) {
+      return res.json({
+        ok: false,
+        raw: null,
+        error: "El BOE devolvió un error o no permite esta búsqueda."
+      });
+    }
+
+    return res.json({
+      ok: true,
+      raw: response.data
+    });
+  } catch (err) {
+    return res.json({
+      ok: false,
+      error: "No se pudo procesar la búsqueda."
+    });
+  }
+});
+
+// ---------------------------------------------------
+// 🟢 DOCUMENTO (XML oficial del BOE)
+// ---------------------------------------------------
+app.get("/documento", async (req, res) => {
   const { id } = req.query;
-  if (!id) return res.json({ ok: false, error: "Falta el parámetro ?id" });
+
+  if (!id)
+    return res.json({ ok: false, error: "Falta ?id=BOE-A-AAAA-NNN" });
 
   try {
     const url = `https://www.boe.es/diario_boe/xml.php?id=${id}`;
-    const response = await axios.get(url, { responseType: "text" });
+
+    const response = await axios.get(url, {
+      responseType: "text",
+      headers: {
+        "User-Agent": "Mozilla/5.0",
+        Accept: "application/xml,text/xml,*/*"
+      }
+    });
 
     if (!esXMLValido(response.data)) {
       return res.json({
         ok: false,
         raw: null,
-        error: "El BOE devolvió un error o el ID no existe."
+        error: "El BOE devolvió un error o el documento no existe."
       });
     }
 
     return res.json({ ok: true, raw: response.data });
-
   } catch (err) {
-    return res.json({ ok: false, error: "Error descargando el documento." });
+    return res.json({ ok: false, error: "No se pudo cargar el documento." });
   }
 });
 
 // ---------------------------------------------------
-// 🟢 HTML oficial del BOE por ID
-// ---------------------------------------------------
-app.get("/html", async (req, res) => {
-  const { id } = req.query;
-  if (!id) return res.json({ ok: false, error: "Falta el parámetro ?id" });
-
-  try {
-    const url = `https://www.boe.es/buscar/doc.php?id=${id}`;
-    const response = await axios.get(url, { responseType: "text" });
-
-    if (response.data.toLowerCase().includes("error en la información")) {
-      return res.json({
-        ok: false,
-        raw: null,
-        error: "El BOE devolvió un error o el ID no existe."
-      });
-    }
-
-    return res.json({ ok: true, raw: response.data });
-
-  } catch (err) {
-    return res.json({ ok: false, error: "Error descargando HTML." });
-  }
-});
-
-// ---------------------------------------------------
-// 🟢 PDF OFICIAL DEL BOE (versión FINAL correcta)
+// 🟢 PDF (descarga directa del BOE)
 // ---------------------------------------------------
 app.get("/pdf", async (req, res) => {
   const { id } = req.query;
-  if (!id) return res.json({ ok: false, error: "Falta el parámetro ?id" });
+
+  if (!id)
+    return res.json({ ok: false, error: "Falta ?id=BOE-A-AAAA-NNN" });
 
   try {
-    // 1) Descargar XML para obtener la ruta PDF real
-    const xmlURL = `https://www.boe.es/diario_boe/xml.php?id=${id}`;
-    const xmlResponse = await axios.get(xmlURL, { responseType: "text" });
+    const pdfUrl = `https://www.boe.es/boe/dias/${id.substring(6, 10)}/${id.substring(10, 12)}/${id.substring(12, 14)}/pdfs/${id}.pdf`;
 
-    if (!esXMLValido(xmlResponse.data)) {
-      return res.json({ ok: false, error: "ID no válido o sin PDF." });
+    const response = await axios.get(pdfUrl, {
+      responseType: "arraybuffer",
+      headers: {
+        "User-Agent": "Mozilla/5.0",
+        Accept: "application/pdf"
+      }
+    });
+
+    if (!response.data) {
+      return res.json({ ok: false, error: "PDF no encontrado." });
     }
-
-    // 2) Extraer la etiqueta <url_pdf>
-    const match = xmlResponse.data.match(/<url_pdf>(.*?)<\/url_pdf>/);
-
-    if (!match || !match[1]) {
-      return res.json({
-        ok: false,
-        error: "Este documento no tiene PDF disponible."
-      });
-    }
-
-    // 3) Construir la URL final
-    const pdfURL = "https://www.boe.es" + match[1];
-
-    // 4) Descargar PDF real
-    const pdfResponse = await axios.get(pdfURL, { responseType: "arraybuffer" });
 
     res.setHeader("Content-Type", "application/pdf");
-    return res.send(pdfResponse.data);
-
+    return res.send(response.data);
   } catch (err) {
-    return res.json({ ok: false, error: "No se pudo descargar el PDF." });
+    return res.json({ ok: false, error: "PDF no encontrado." });
   }
 });
 
 // ---------------------------------------------------
-// 🟢 BOE DEL DÍA (lista de documentos publicados ese día)
+// 🟢 DIARIO DEL DÍA (SUMARIO BOE) — CORREGIDO
+//     Usa la API OFICIAL de Datos Abiertos del BOE
 // ---------------------------------------------------
 app.get("/diario", async (req, res) => {
   const { fecha } = req.query;
-  if (!fecha) {
-    return res.json({ ok: false, error: "Falta el parámetro ?fecha=YYYYMMDD" });
-  }
+
+  if (!fecha)
+    return res.json({ ok: false, error: "Falta ?fecha=YYYYMMDD" });
 
   try {
-    const url = `https://www.boe.es/diario_boe/xml.php?fecha=${fecha}`;
-    const response = await axios.get(url, { responseType: "text" });
+    const url = `https://www.boe.es/datosabiertos/api/boe/sumario/${fecha}`;
+
+    const response = await axios.get(url, {
+      responseType: "text",
+      headers: {
+        "User-Agent": "Mozilla/5.0",
+        Accept: "application/xml,text/xml,*/*"
+      }
+    });
 
     if (!esXMLValido(response.data)) {
       return res.json({
@@ -147,65 +207,14 @@ app.get("/diario", async (req, res) => {
     return res.json({ ok: true, raw: response.data });
 
   } catch (err) {
-    return res.json({ ok: false, error: "Error cargando el BOE de ese día." });
-  }
-});
-
-// ---------------------------------------------------
-// 🟢 COMPARE 2 DOCUMENTOS
-// ---------------------------------------------------
-app.get("/compare", async (req, res) => {
-  const { id1, id2 } = req.query;
-
-  if (!id1 || !id2) {
     return res.json({
       ok: false,
-      error: "Faltan parámetros ?id1=&id2="
+      error: "Error obteniendo el diario del BOE."
     });
-  }
-
-  try {
-    const url1 = `https://www.boe.es/diario_boe/xml.php?id=${id1}`;
-    const url2 = `https://www.boe.es/diario_boe/xml.php?id=${id2}`;
-
-    const [r1, r2] = await Promise.all([
-      axios.get(url1, { responseType: "text" }),
-      axios.get(url2, { responseType: "text" })
-    ]);
-
-    return res.json({
-      compare: { id1, id2 },
-      doc1: esXMLValido(r1.data) ? { ok: true, raw: r1.data } : { ok: false },
-      doc2: esXMLValido(r2.data) ? { ok: true, raw: r2.data } : { ok: false }
-    });
-
-  } catch (err) {
-    return res.json({ ok: false, error: "Error comparando documentos." });
   }
 });
 
 // ---------------------------------------------------
-// 🟢 INICIO
-// ---------------------------------------------------
-app.get("/", (req, res) => {
-  res.json({
-    ok: true,
-    message: "API BOE ONLINE",
-    endpoints: [
-      "/status",
-      "/details?id=",
-      "/html?id=",
-      "/pdf?id=",
-      "/diario?fecha=",
-      "/compare?id1=&id2="
-    ]
-  });
+app.listen(3000, () => {
+  console.log("BOE API server running on port 3000");
 });
-
-// ---------------------------------------------------
-// 🔥 Iniciar servidor
-// ---------------------------------------------------
-const PORT = process.env.PORT || 3000;
-app.listen(PORT, () =>
-  console.log("API BOE corriendo en el puerto " + PORT)
-);
