@@ -13,7 +13,7 @@ app.post("/buscar_articulo", async (req, res) => {
   try {
     const { ley, articulo } = req.body;
 
-    if (!ley || !articulo) {
+    if (!Ley || !articulo) {
       return res.status(400).json({ error: "Faltan parámetros: ley y articulo" });
     }
 
@@ -40,5 +40,5 @@ app.post("/buscar_articulo", async (req, res) => {
   }
 });
 
-const PORT = process.env.PORT || 3000;
+const PORT = process.env.PORT || 8080; // Railway asigna su puerto aquí
 app.listen(PORT, () => console.log("API escuchando en " + PORT));
