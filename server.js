@@ -5,48 +5,70 @@ import cors from "cors";
 const app = express();
 app.use(cors());
 
+/* ============================
+   FUNCIÓN: Normalizar respuesta
+   ============================ */
+function limpiarRespuesta(data) {
+  // Si empieza con "<" es XML verdadero → OK
+  if (typeof data === "string" && data.trim().startsWith("<")) {
+    return { ok: true, raw: data };
+  }
 
-// ===============================
-// PLAN A — BÁSICO (100% FUNCIONAL)
-// ===============================
+  // Si no es XML, el BOE devolvió HTML de error → devolvemos mensaje limpio
+  return {
+    ok: false,
+    raw: null,
+    error: "No hay resultados para esta búsqueda o el BOE devolvió un error."
+  };
+}
+
+/* ================================
+   PLAN A — BÁSICO
+   ================================ */
 
 // Estado
 app.get("/", (req, res) => {
-  res.json({ status: "ok", api: "BOE API", version: "1.0.0" });
+  res.json({
+    status: "ok",
+    api: "BOE API",
+    version: "2.0.0",
+    info: "Servidor profesional A/B/C listo para GPT"
+  });
 });
 
-// Últimos documentos publicados (REAL)
+// Últimos documentos (XML verdadero)
 app.get("/latest", async (req, res) => {
   try {
     const url = `https://www.boe.es/buscar/xml.php?q=*&sort=fecha&order=desc&n=20`;
     const { data } = await axios.get(url, { responseType: "text" });
 
-    res.json({ type: "latest", raw: data });
+    res.json(limpiarRespuesta(data));
   } catch (error) {
     res.status(500).json({ error: error.toString() });
   }
 });
 
-// Buscar documentos (REAL)
+// Buscar documentos (XML verdadero)
 app.get("/search", async (req, res) => {
   try {
     const q = req.query.q;
     if (!q) return res.status(400).json({ error: "Falta ?q=" });
 
-    const url = `https://www.boe.es/buscar/xml.php?q=${encodeURIComponent(q)}&n=50&sort=fecha&order=desc`;
+    const url = `https://www.boe.es/buscar/xml.php?q=${encodeURIComponent(q)}&sort=fecha&order=desc&n=50`;
     const { data } = await axios.get(url, { responseType: "text" });
 
-    res.json({ query: q, raw: data });
+    res.json(limpiarRespuesta(data));
   } catch (error) {
     res.status(500).json({ error: error.toString() });
   }
 });
 
 
-// ===============================
-// PLAN B — PRO (YA FUNCIONA)
-// ===============================
+/* ================================
+   PLAN B — PRO
+   ================================ */
 
+// Detalles de un documento del BOE (XML garantizado)
 app.get("/details", async (req, res) => {
   try {
     const id = req.query.id;
@@ -55,18 +77,51 @@ app.get("/details", async (req, res) => {
     const url = `https://www.boe.es/diario_boe/xml.php?id=${id}`;
     const { data } = await axios.get(url, { responseType: "text" });
 
-    res.json({ id, raw: data });
+    res.json(limpiarRespuesta(data));
   } catch (error) {
     res.status(500).json({ error: error.toString() });
   }
 });
 
 
-// ===============================
-// PLAN C — PREMIUM
-// ===============================
+/* ================================
+   PLAN C — PREMIUM
+   ================================ */
 
-// Comparar leyes
+// Sectores con sintaxis REAL del BOE
+const sectores = {
+  autonomos: "autónomos | actividad económica",
+  fiscal: "impuesto | IRPF | IVA | tributación",
+  vivienda: "vivienda | alquiler | arrendamiento",
+  transporte: "transporte | circulación | tráfico",
+  sanitario: "sanitario | salud | regulación"
+};
+
+// Alertas por sector
+app.get("/alerts", async (req, res) => {
+  try {
+    const sector = req.query.sector;
+    if (!sector || !sectores[sector])
+      return res.status(400).json({ error: "Sector no válido" });
+
+    const consulta = sectores[sector];
+    const url = `https://www.boe.es/buscar/xml.php?q=${encodeURIComponent(
+      consulta
+    )}&sort=fecha&order=desc&n=50`;
+
+    const { data } = await axios.get(url, { responseType: "text" });
+
+    res.json({
+      sector,
+      query: consulta,
+      ...limpiarRespuesta(data)
+    });
+  } catch (error) {
+    res.status(500).json({ error: error.toString() });
+  }
+});
+
+// Comparador de leyes
 app.get("/compare", async (req, res) => {
   try {
     const { id1, id2 } = req.query;
@@ -78,13 +133,13 @@ app.get("/compare", async (req, res) => {
 
     const [res1, res2] = await Promise.all([
       axios.get(url1, { responseType: "text" }),
-      axios.get(url2, { responseType: "text" })
+      axios.get(url2, { responseType: "text" }),
     ]);
 
     res.json({
       compare: { id1, id2 },
-      raw1: res1.data,
-      raw2: res2.data
+      doc1: limpiarRespuesta(res1.data),
+      doc2: limpiarRespuesta(res2.data)
     });
 
   } catch (error) {
@@ -92,32 +147,12 @@ app.get("/compare", async (req, res) => {
   }
 });
 
-// Alertas por sector (REAL)
-const sectores = {
-  autonomos: "autónomos OR actividad",
-  fiscal: "impuesto OR fiscal",
-  vivienda: "vivienda OR alquiler",
-  transporte: "transporte OR tráfico",
-  sanitario: "salud OR sanitario"
-};
 
-app.get("/alerts", async (req, res) => {
-  try {
-    const sector = req.query.sector;
-    if (!sector || !sectores[sector])
-      return res.status(400).json({ error: "Sector no válido" });
+/* ================================
+   SERVIDOR
+   ================================ */
 
-    const query = sectores[sector];
-    const url = `https://www.boe.es/buscar/xml.php?q=${encodeURIComponent(query)}&n=50&sort=fecha&order=desc`;
-    const { data } = await axios.get(url, { responseType: "text" });
-
-    res.json({ sector, query, raw: data });
-  } catch (error) {
-    res.status(500).json({ error: error.toString() });
-  }
-});
-
-
-// PUERTO
 const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => console.log("BOE API corriendo en " + PORT));
+app.listen(PORT, () =>
+  console.log("BOE API PRO corriendo en puerto " + PORT)
+);
