@@ -1,5 +1,6 @@
 import express from "express";
 import axios from "axios";
+
 const app = express();
 
 // ---------------------------------------------------
@@ -9,67 +10,27 @@ function esXMLValido(data) {
   const text = String(data).trim().toLowerCase();
 
   if (text.startsWith("<?xml")) return true;
-  if (text.startsWith("<documento")) return true;   // documento de detalle
-  if (text.startsWith("<sumario")) return true;     // XML del diario BOE
-  if (text.startsWith("<error")) return true;       // error XML oficial
+  if (text.startsWith("<documento")) return true;   // XML de detalle
+  if (text.startsWith("<sumario")) return true;     // XML sumario diario
+  if (text.startsWith("<error")) return true;
 
-  // Si empieza con HTML → error del BOE
+  // HTML = error del BOE
   if (text.startsWith("<!doctype html") || text.startsWith("<html")) return false;
 
   return false;
 }
 
-// Middleware global
 app.use(express.json());
 
 // ---------------------------------------------------
 // 🟢 STATUS
 // ---------------------------------------------------
 app.get("/status", (req, res) => {
-  res.json({ ok: true, status: "API funcionando correctamente" });
+  res.json({ ok: true, status: "BOE API funcionando correctamente" });
 });
 
 // ---------------------------------------------------
-// 🟢 BUSCAR (web scraping del buscador BOE, estable)
-// ---------------------------------------------------
-app.get("/buscar", async (req, res) => {
-  const { q } = req.query;
-  if (!q) return res.json({ ok: false, error: "Falta ?q=" });
-
-  try {
-    const url = `https://www.boe.es/buscar/boe.php?campo%5B0%5D=todos&texto=${encodeURIComponent(q)}`;
-
-    const response = await axios.get(url, {
-      responseType: "text",
-      headers: { "User-Agent": "Mozilla/5.0" }
-    });
-
-    const $ = cheerio.load(response.data);
-
-    let resultados = [];
-
-    $(".resultado-busqueda").each((i, el) => {
-      const id = $(el).find("a").attr("href")?.match(/id=(BOE-[A-Z]-\d+-\d+)/)?.[1];
-      const titulo = $(el).find(".resultado-busqueda-titulo")?.text()?.trim();
-
-      if (id) {
-        resultados.push({ id, titulo });
-      }
-    });
-
-    if (resultados.length === 0) {
-      return res.json({ ok: false, error: "Sin resultados en el BOE." });
-    }
-
-    res.json({ ok: true, resultados });
-
-  } catch (err) {
-    res.json({ ok: false, error: "Error buscando en el BOE." });
-  }
-});
-
-// ---------------------------------------------------
-// 🟢 DETALLE DE DOCUMENTO: /detalle?id=BOE-A-2025-12345
+// 🟢 DETALLE DE DOCUMENTO: /detalle?id=BOE-A-XXXX
 // ---------------------------------------------------
 app.get("/detalle", async (req, res) => {
   const { id } = req.query;
@@ -84,7 +45,11 @@ app.get("/detalle", async (req, res) => {
     });
 
     if (!esXMLValido(response.data)) {
-      return res.json({ ok: false, raw: null, error: "Documento no disponible o el BOE devolvió error." });
+      return res.json({
+        ok: false,
+        raw: null,
+        error: "Documento no disponible o el BOE devolvió error."
+      });
     }
 
     res.json({ ok: true, raw: response.data });
@@ -95,7 +60,7 @@ app.get("/detalle", async (req, res) => {
 });
 
 // ---------------------------------------------------
-// 🟢 PDF DEL DOCUMENTO: /pdf?id=BOE-A-2025-12345
+// 🟢 PDF DEL DOCUMENTO: /pdf?id=BOE-A-XXXX
 // ---------------------------------------------------
 app.get("/pdf", async (req, res) => {
   const { id } = req.query;
@@ -128,8 +93,7 @@ app.get("/pdf", async (req, res) => {
 });
 
 // ---------------------------------------------------
-// 🟢 DIARIO DEL DÍA (SUMARIO OFICIAL)
-//      /diario?fecha=20251115
+// 🟢 DIARIO DEL DÍA (SUMARIO OFICIAL): /diario?fecha=YYYYMMDD
 // ---------------------------------------------------
 app.get("/diario", async (req, res) => {
   const { fecha } = req.query;
@@ -149,7 +113,11 @@ app.get("/diario", async (req, res) => {
     });
 
     if (!esXMLValido(response.data)) {
-      return res.json({ ok: false, raw: null, error: "El BOE no tiene datos para esa fecha o devolvió error." });
+      return res.json({
+        ok: false,
+        raw: null,
+        error: "El BOE no tiene datos para esa fecha o devolvió error."
+      });
     }
 
     res.json({ ok: true, raw: response.data });
@@ -160,7 +128,7 @@ app.get("/diario", async (req, res) => {
 });
 
 // ---------------------------------------------------
-// 🟢 SERVER LISTEN (Railway compatible)
+// 🟢 INICIO DEL SERVER (compatible con Railway)
 // ---------------------------------------------------
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
