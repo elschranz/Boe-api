@@ -30,38 +30,41 @@ app.get("/status", (req, res) => {
 });
 
 // ---------------------------------------------------
-// 🟢 NUEVA BÚSQUEDA BOE (API OFICIAL, FUNCIONA SIEMPRE)
+// 🟢 BUSCAR (web scraping del buscador BOE, estable)
 // ---------------------------------------------------
 app.get("/buscar", async (req, res) => {
   const { q } = req.query;
   if (!q) return res.json({ ok: false, error: "Falta ?q=" });
 
   try {
-    const url = `https://www.boe.es/datosabiertos/api/boe/busqueda?q=${encodeURIComponent(q)}`;
+    const url = `https://www.boe.es/buscar/boe.php?campo%5B0%5D=todos&texto=${encodeURIComponent(q)}`;
 
     const response = await axios.get(url, {
       responseType: "text",
-      headers: { 
-        "User-Agent": "Mozilla/5.0",
-        "Accept": "application/xml,text/xml,*/*"
+      headers: { "User-Agent": "Mozilla/5.0" }
+    });
+
+    const $ = cheerio.load(response.data);
+
+    let resultados = [];
+
+    $(".resultado-busqueda").each((i, el) => {
+      const id = $(el).find("a").attr("href")?.match(/id=(BOE-[A-Z]-\d+-\d+)/)?.[1];
+      const titulo = $(el).find(".resultado-busqueda-titulo")?.text()?.trim();
+
+      if (id) {
+        resultados.push({ id, titulo });
       }
     });
 
-    if (!esXMLValido(response.data)) {
-      return res.json({
-        ok: false,
-        raw: null,
-        error: "El BOE no devolvió XML válido para esta búsqueda."
-      });
+    if (resultados.length === 0) {
+      return res.json({ ok: false, error: "Sin resultados en el BOE." });
     }
 
-    res.json({ ok: true, raw: response.data });
+    res.json({ ok: true, resultados });
 
   } catch (err) {
-    res.json({
-      ok: false,
-      error: "Error buscando en el BOE."
-    });
+    res.json({ ok: false, error: "Error buscando en el BOE." });
   }
 });
 
