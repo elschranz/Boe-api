@@ -1,44 +1,47 @@
 import express from "express";
 import axios from "axios";
-import * as cheerio from "cheerio";
+import cors from "cors";
 
 const app = express();
-app.use(express.json());
+app.use(cors());
 
+// Endpoint de estado
 app.get("/", (req, res) => {
-  res.json({ status: "OK", message: "BOE API funcionando" });
+  res.json({ status: "ok", message: "BOE API funcionando" });
 });
 
-app.post("/buscar_articulo", async (req, res) => {
+// Endpoint para buscar en el BOE
+app.get("/search", async (req, res) => {
   try {
-    const { ley, articulo } = req.body;
+    const query = req.query.q;
 
-    if (!Ley || !articulo) {
-      return res.status(400).json({ error: "Faltan parámetros: ley y articulo" });
+    if (!query) {
+      return res.status(400).json({ error: "Falta el parámetro q" });
     }
 
-    const url = `https://www.boe.es/buscar/act.php?query=${encodeURIComponent(ley)}`;
+    // API pública del BOE (RSS JSON)
+    const url = `https://www.boe.es/diario_boe/xml.php?id=BOE-S-${query}`;
+    
+    // Consulta al BOE
+    const response = await axios.get(
+      `https://www.boe.es/buscar/feed.php?tn=1&sf=all&q=${encodeURIComponent(query)}`
+    );
 
-    const response = await axios.get(url, {
-      headers: { "User-Agent": "Mozilla/5.0" }
+    res.json({
+      query,
+      results: response.data
     });
 
-    const $ = cheerio.load(response.data);
-    const texto = $("body").text().toLowerCase();
-
-    const index = texto.indexOf(articulo.toLowerCase());
-    if (index === -1) {
-      return res.json({ resultado: "Artículo no encontrado." });
-    }
-
-    const resultado = texto.substring(index, index + 2000);
-
-    res.json({ ley, articulo, resultado });
-
   } catch (error) {
-    res.status(500).json({ error: "Error al consultar el BOE." });
+    res.status(500).json({
+      error: "Error consultando el BOE",
+      details: error.toString(),
+    });
   }
 });
 
-const PORT = process.env.PORT || 8080; // Railway asigna su puerto aquí
-app.listen(PORT, () => console.log("API escuchando en " + PORT));
+// Puerto Railway
+const PORT = process.env.PORT || 3000;
+app.listen(PORT, () => {
+  console.log("Servidor BOE API en el puerto " + PORT);
+});
