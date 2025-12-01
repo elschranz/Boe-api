@@ -6,19 +6,39 @@ const app = express();
 app.use(cors());
 
 /* =======================================================
-   FUNCIÓN PARA VALIDAR SI EL BOE DEVUELVE XML O HTML
+   FUNCIÓN AVANZADA PARA DETECTAR XML O HTML DEL BOE
    ======================================================= */
 function limpiarRespuesta(data) {
-  if (typeof data === "string" && data.trim().startsWith("<")) {
-    // XML correcto
+  const text = String(data).trim().toLowerCase();
+
+  // ✔ XML real del BOE SIEMPRE empieza con "<?xml"
+  if (text.startsWith("<?xml")) {
     return { ok: true, raw: data };
   }
 
-  // HTML de error u otra cosa
+  // ❌ Si empieza por HTML → es un error del BOE
+  if (
+    text.startsWith("<!doctype html") ||
+    text.startsWith("<html") ||
+    text.includes("boe.es - error")
+  ) {
+    return {
+      ok: false,
+      raw: null,
+      error: "El BOE devolvió un error o no permite esta búsqueda."
+    };
+  }
+
+  // ✔ XML válido sin encabezado
+  if (text.startsWith("<")) {
+    return { ok: true, raw: data };
+  }
+
+  // ❌ Otra cosa desconocida
   return {
     ok: false,
     raw: null,
-    error: "El BOE devolvió un HTML de error o no hay resultados."
+    error: "Respuesta no válida del BOE."
   };
 }
 
@@ -26,12 +46,12 @@ function limpiarRespuesta(data) {
    PLAN A — BÁSICO
    ======================================================= */
 
-// 🔹 STATUS súper simple
+// STATUS
 app.get("/", (req, res) => {
   res.status(200).json({
     status: "ok",
     api: "BOE API",
-    version: "3.0.0"
+    version: "3.1.0"
   });
 });
 
@@ -47,7 +67,6 @@ app.get("/latest", async (req, res) => {
     const url = `https://www.boe.es/diario_boe/xml.php?id=${id}`;
 
     const { data } = await axios.get(url, { responseType: "text" });
-
     res.json(limpiarRespuesta(data));
   } catch (error) {
     res.status(500).json({ error: error.toString() });
@@ -96,7 +115,7 @@ app.get("/details", async (req, res) => {
 
 const sectores = {
   autonomos: "autónomos | actividad económica",
-  fiscal: "impuesto | IRPF | IVA | tributación",
+  fiscal: "impuesto | irpf | iva | tributación",
   vivienda: "vivienda | alquiler | arrendamiento",
   transporte: "transporte | circulación | tráfico",
   sanitario: "sanitario | salud | regulación"
@@ -110,6 +129,7 @@ app.get("/alerts", async (req, res) => {
     }
 
     const consulta = sectores[sector];
+
     const url = `https://www.boe.es/buscar/xml.php?q=${encodeURIComponent(
       consulta
     )}&sort=fecha&order=desc&n=50`;
@@ -126,12 +146,12 @@ app.get("/alerts", async (req, res) => {
   }
 });
 
+// Comparador
 app.get("/compare", async (req, res) => {
   try {
     const { id1, id2 } = req.query;
-    if (!id1 || !id2) {
+    if (!id1 || !id2)
       return res.status(400).json({ error: "Faltan ?id1= y ?id2=" });
-    }
 
     const url1 = `https://www.boe.es/diario_boe/xml.php?id=${id1}`;
     const url2 = `https://www.boe.es/diario_boe/xml.php?id=${id2}`;
@@ -157,5 +177,5 @@ app.get("/compare", async (req, res) => {
 
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
-  console.log("BOE API PRO 3.0.0 corriendo en puerto " + PORT);
+  console.log("BOE API PRO 3.1 corriendo en puerto " + PORT);
 });
