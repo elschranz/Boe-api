@@ -5,43 +5,27 @@ import cors from "cors";
 const app = express();
 app.use(cors());
 
-// Endpoint de estado
 app.get("/", (req, res) => {
-  res.json({ status: "ok", message: "BOE API funcionando" });
+  res.json({ status: "ok" });
 });
 
-// Endpoint para buscar en el BOE
 app.get("/search", async (req, res) => {
+  const q = req.query.q;
+  if (!q) return res.status(400).json({ error: "Falta ?q=" });
+
   try {
-    const query = req.query.q;
-
-    if (!query) {
-      return res.status(400).json({ error: "Falta el parámetro q" });
-    }
-
-    // API pública del BOE (RSS JSON)
-    const url = `https://www.boe.es/diario_boe/xml.php?id=BOE-S-${query}`;
-    
-    // Consulta al BOE
-    const response = await axios.get(
-      `https://www.boe.es/buscar/feed.php?tn=1&sf=all&q=${encodeURIComponent(query)}`
-    );
+    const url = `https://www.boe.es/buscar/feed.php?tn=1&sf=all&q=${encodeURIComponent(q)}`;
+    const response = await axios.get(url, { responseType: "text" });
 
     res.json({
-      query,
-      results: response.data
+      query: q,
+      raw: response.data
     });
 
-  } catch (error) {
-    res.status(500).json({
-      error: "Error consultando el BOE",
-      details: error.toString(),
-    });
+  } catch (e) {
+    res.status(500).json({ error: e.toString() });
   }
 });
 
-// Puerto Railway
 const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => {
-  console.log("Servidor BOE API en el puerto " + PORT);
-});
+app.listen(PORT, () => console.log("API BOE corriendo en " + PORT));
